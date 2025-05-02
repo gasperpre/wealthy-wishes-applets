@@ -184,99 +184,109 @@ public class CryptoHandler extends Applet implements SharedCryptoInterface {
      */
     @Override
     public short processCryptoCommand(byte[] commandDataBuffer, short commandDataOffset, short commandDataLength,
-                                      byte[] outputBuffer, short outputOffset) throws ISOException {
+                                      byte[] outputBuffer, short outputOffset) {
+        try {
+            if (commandDataLength < 1) {
+                ISOException.throwIt(CryptoErrors.ERR_INVALID_LENGTH);
+            }
 
-        if (commandDataLength < 1) { // Must have at least the command byte
-            ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
+            byte cmd = commandDataBuffer[commandDataOffset];
+            short actualDataOffset = (short)(commandDataOffset + 1);
+            short actualDataLength = (short)(commandDataLength - 1);
+
+            switch (cmd) {
+                case CMD_SIGN:
+                    if (actualDataLength < SIGN_CMD_DATA_LENGTH) {
+                        ISOException.throwIt(CryptoErrors.ERR_INVALID_LENGTH);
+                    }
+                    return signDataInternal(
+                        commandDataBuffer, (short)(actualDataOffset + OFFSET_SIGN_AUTH_HASH),
+                        commandDataBuffer, (short)(actualDataOffset + OFFSET_SIGN_DATA_HASH),
+                        outputBuffer, outputOffset
+                    );
+
+                case CMD_GET_PKEY:
+                    if (actualDataLength != 0) {
+                        ISOException.throwIt(CryptoErrors.ERR_INVALID_LENGTH);
+                    }
+                    return getPkeyInternal(outputBuffer, outputOffset);
+
+                case CMD_GEN_KEY:
+                    if (actualDataLength < GEN_KEY_CMD_DATA_LENGTH) {
+                        ISOException.throwIt(CryptoErrors.ERR_INVALID_LENGTH);
+                    }
+                    return genKeyInternal(
+                        commandDataBuffer, (short)(actualDataOffset + OFFSET_GEN_KEY_DERIVED_KEY),
+                        GEN_KEY_DERIVED_KEY_LENGTH,
+                        outputBuffer, outputOffset
+                    );
+
+                case CMD_GET_CONFIG:
+                    if (actualDataLength != 0) {
+                        ISOException.throwIt(CryptoErrors.ERR_INVALID_LENGTH);
+                    }
+                    return getConfig(outputBuffer, outputOffset);
+
+                case CMD_SET_STATUS:
+                    if (actualDataLength < SET_STATUS_CMD_DATA_LENGTH) {
+                        ISOException.throwIt(CryptoErrors.ERR_INVALID_LENGTH);
+                    }
+                    return setStatusInternal(
+                        commandDataBuffer, (short)(actualDataOffset + OFFSET_SET_STATUS_AUTH_HASH),
+                        commandDataBuffer, (short)(actualDataOffset + OFFSET_SET_STATUS_DATA),
+                        outputBuffer, outputOffset
+                    );
+
+                case CMD_EXPORT_KEY:
+                    if (actualDataLength < EXPORT_KEY_CMD_DATA_LENGTH) {
+                        ISOException.throwIt(CryptoErrors.ERR_INVALID_LENGTH);
+                    }
+                    return exportKeyInternal(
+                        commandDataBuffer, (short)(actualDataOffset + OFFSET_EXPORT_KEY_AUTH_HASH),
+                        commandDataBuffer, (short)(actualDataOffset + OFFSET_EXPORT_KEY_DUMMY_DATA),
+                        EXPORT_KEY_DUMMY_DATA_LENGTH, 
+                        outputBuffer, outputOffset
+                    );
+
+                case CMD_SET_PASSWORD:
+                    if (actualDataLength < SET_PASSWORD_CMD_DATA_LENGTH) {
+                        ISOException.throwIt(CryptoErrors.ERR_INVALID_LENGTH);
+                    }
+                    return setPasswordInternal(
+                        commandDataBuffer, (short)(actualDataOffset + OFFSET_SET_PASSWORD_AUTH_HASH),
+                        commandDataBuffer, (short)(actualDataOffset + OFFSET_SET_PASSWORD_NEW_KEY),
+                        SET_PASSWORD_NEW_KEY_LENGTH,
+                        outputBuffer, outputOffset
+                    );
+
+                case CMD_RESET:
+                    if (actualDataLength < RESET_CMD_DATA_LENGTH) {
+                        ISOException.throwIt(CryptoErrors.ERR_INVALID_LENGTH);
+                    }
+                    return resetCardInternal(
+                        commandDataBuffer, (short)(actualDataOffset + OFFSET_RESET_AUTH_HASH),
+                        commandDataBuffer, (short)(actualDataOffset + OFFSET_RESET_DUMMY_DATA),
+                        RESET_DUMMY_DATA_LENGTH,
+                        outputBuffer, outputOffset
+                    );
+
+                default:
+                    ISOException.throwIt(CryptoErrors.ERR_INVALID_COMMAND);
+            }
+        } catch (ISOException e) {
+            // Check if this is one of our custom errors
+            short reason = e.getReason();
+            if (CryptoErrors.isError(reason)) {
+                // If it's our custom error, pass it through
+                return CryptoErrors.writeError(outputBuffer, outputOffset, reason);
+            }
+            // If it's not our error, map it to an unknown error
+            return CryptoErrors.writeError(outputBuffer, outputOffset, CryptoErrors.ERR_CRYPTO_FAILED);
+        } catch (Exception e) {
+            // Any other unexpected error
+            return CryptoErrors.writeError(outputBuffer, outputOffset, CryptoErrors.ERR_CRYPTO_FAILED);
         }
-
-        byte cmd = commandDataBuffer[commandDataOffset];
-        short actualDataOffset = (short)(commandDataOffset + 1); // Data starts after command byte
-        short actualDataLength = (short)(commandDataLength - 1); // Length of data following command byte
-
-        switch (cmd) {
-            case CMD_SIGN:
-                if (actualDataLength < SIGN_CMD_DATA_LENGTH) {
-                     ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
-                }
-                // Authentication happens within signDataInternal
-                return signDataInternal(
-                    commandDataBuffer, (short)(actualDataOffset + OFFSET_SIGN_AUTH_HASH),
-                    commandDataBuffer, (short)(actualDataOffset + OFFSET_SIGN_DATA_HASH),
-                    outputBuffer, outputOffset
-                );
-
-            case CMD_GET_PKEY:
-                if (actualDataLength != 0) ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
-                return getPkeyInternal(outputBuffer, outputOffset);
-
-            case CMD_GEN_KEY:
-                if (actualDataLength < GEN_KEY_CMD_DATA_LENGTH) {
-                     ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
-                }
-                // Gen key doesn't require prior auth, it sets the initial key/password
-                return genKeyInternal(
-                    commandDataBuffer, (short)(actualDataOffset + OFFSET_GEN_KEY_DERIVED_KEY),
-                    GEN_KEY_DERIVED_KEY_LENGTH,
-                    outputBuffer, outputOffset
-                );
-
-            case CMD_GET_CONFIG:
-                 if (actualDataLength != 0) ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
-                return getConfig(outputBuffer, outputOffset); // getConfig is public, can be called directly
-
-            case CMD_SET_STATUS:
-                 if (actualDataLength < SET_STATUS_CMD_DATA_LENGTH) {
-                     ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
-                }
-                // Authentication happens within setStatusInternal
-                return setStatusInternal(
-                    commandDataBuffer, (short)(actualDataOffset + OFFSET_SET_STATUS_AUTH_HASH),
-                    commandDataBuffer, (short)(actualDataOffset + OFFSET_SET_STATUS_DATA),
-                    outputBuffer, outputOffset
-                );
-
-            case CMD_EXPORT_KEY:
-                 if (actualDataLength < EXPORT_KEY_CMD_DATA_LENGTH) {
-                     ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
-                }
-                // Authentication happens within exportKeyInternal
-                return exportKeyInternal(
-                    commandDataBuffer, (short)(actualDataOffset + OFFSET_EXPORT_KEY_AUTH_HASH),
-                    commandDataBuffer, (short)(actualDataOffset + OFFSET_EXPORT_KEY_DUMMY_DATA),
-                    EXPORT_KEY_DUMMY_DATA_LENGTH, 
-                    outputBuffer, outputOffset
-                );
-
-            case CMD_SET_PASSWORD:
-                 if (actualDataLength < SET_PASSWORD_CMD_DATA_LENGTH) {
-                     ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
-                }
-                 // Authentication happens within setPasswordInternal
-                 return setPasswordInternal(
-                    commandDataBuffer, (short)(actualDataOffset + OFFSET_SET_PASSWORD_AUTH_HASH),
-                    commandDataBuffer, (short)(actualDataOffset + OFFSET_SET_PASSWORD_NEW_KEY),
-                    SET_PASSWORD_NEW_KEY_LENGTH,
-                    outputBuffer, outputOffset
-                 );
-
-            case CMD_RESET:
-                 if (actualDataLength < RESET_CMD_DATA_LENGTH) {
-                     ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
-                }
-                // Authentication happens within resetCardInternal
-                return resetCardInternal(
-                    commandDataBuffer, (short)(actualDataOffset + OFFSET_RESET_AUTH_HASH),
-                    commandDataBuffer, (short)(actualDataOffset + OFFSET_RESET_DUMMY_DATA),
-                    RESET_DUMMY_DATA_LENGTH,
-                    outputBuffer, outputOffset
-                );
-
-            default:
-                ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED); // Treat unknown command as unsupported INS
-        }
-        // This part should be unreachable due to the default case throwing an exception
-        return 0;
+        return 0; // Unreachable
     }
 
     /**
@@ -314,13 +324,19 @@ public class CryptoHandler extends Applet implements SharedCryptoInterface {
                                    byte[] outputBuffer, short outputOffset) throws ISOException {
         // Verify authentication hash against the derived key and the data being signed
         if (!verifyAuthHashInternal(authHashBuffer, authHashOffset, dataToSignBuffer, dataToSignOffset, SIGN_DATA_HASH_LENGTH)) {
-             ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+            ISOException.throwIt(CryptoErrors.ERR_AUTH_FAILED);
         }
         incrementCounterInternal(); // Increment counter *after* successful authentication
-        signature.init(privKey, Signature.MODE_SIGN);
-        // Sign the pre-computed hash provided in dataToSignBuffer
-        short sigLen = signature.signPreComputedHash(dataToSignBuffer, dataToSignOffset, SIGN_DATA_HASH_LENGTH, outputBuffer, outputOffset);
-        return sigLen;
+        
+        try {
+            signature.init(privKey, Signature.MODE_SIGN);
+            // Sign the pre-computed hash provided in dataToSignBuffer
+            short sigLen = signature.signPreComputedHash(dataToSignBuffer, dataToSignOffset, SIGN_DATA_HASH_LENGTH, outputBuffer, outputOffset);
+            return sigLen;
+        } catch (Exception e) {
+            ISOException.throwIt(CryptoErrors.ERR_CRYPTO_FAILED);
+        }
+        return 0; // Unreachable
     }
 
     /**
@@ -335,10 +351,15 @@ public class CryptoHandler extends Applet implements SharedCryptoInterface {
     private short getPkeyInternal(byte[] outputBuffer, short outputOffset) throws ISOException {
         // No authentication required for public key, but card must be initialized
         if ((configFlags & FLAG_INITIALIZED) != FLAG_INITIALIZED) {
-            ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED); // Not initialized yet
+            ISOException.throwIt(CryptoErrors.ERR_NOT_INITIALIZED);
         }
-        pubKey.getW(outputBuffer, outputOffset); // Get uncompressed public key (W)
-        return UNCOMPRESSED_PKEY_LENGTH;
+        try {
+            pubKey.getW(outputBuffer, outputOffset); // Get uncompressed public key (W)
+            return UNCOMPRESSED_PKEY_LENGTH;
+        } catch (Exception e) {
+            ISOException.throwIt(CryptoErrors.ERR_CRYPTO_FAILED);
+        }
+        return 0; // Unreachable
     }
 
     /**
@@ -358,21 +379,28 @@ public class CryptoHandler extends Applet implements SharedCryptoInterface {
                                  byte[] outputBuffer, short outputOffset) throws ISOException {
         // Prevent overwriting existing key/password if already initialized
         if ((configFlags & FLAG_INITIALIZED) == FLAG_INITIALIZED) {
-            ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED); // Already initialized
+            ISOException.throwIt(CryptoErrors.ERR_ALREADY_INITIALIZED);
         }
-        // Store the initial derived key
-        Util.arrayCopyNonAtomic(derivedKeyBuffer, derivedKeyOffset, storedDerivedKey, (short)0, DERIVED_KEY_LENGTH);
-        generateNewKeyPairInternal(); // Generate new keys
-        // Reset state on new key generation
-        configFlags = FLAG_INITIALIZED; // Set initialized flag, clear others
-        configStatus = 0;
-        passwordTries = 0;
-        isLocked = false;
-        counter[0] = 0; counter[1] = 0; counter[2] = 0; counter[3] = 1; // Reset counter
+        
+        try {
+            // Store the initial derived key
+            Util.arrayCopyNonAtomic(derivedKeyBuffer, derivedKeyOffset, storedDerivedKey, (short)0, DERIVED_KEY_LENGTH);
+            generateNewKeyPairInternal(); // Generate new keys
+            
+            // Reset state on new key generation
+            configFlags = FLAG_INITIALIZED; // Set initialized flag, clear others
+            configStatus = 0;
+            passwordTries = 0;
+            isLocked = false;
+            counter[0] = 0; counter[1] = 0; counter[2] = 0; counter[3] = 1; // Reset counter
 
-        // Return the newly generated public key
-        pubKey.getW(outputBuffer, outputOffset);
-        return UNCOMPRESSED_PKEY_LENGTH;
+            // Return the newly generated public key
+            pubKey.getW(outputBuffer, outputOffset);
+            return UNCOMPRESSED_PKEY_LENGTH;
+        } catch (Exception e) {
+            ISOException.throwIt(CryptoErrors.ERR_CRYPTO_FAILED);
+        }
+        return 0; // Unreachable
     }
 
     /**
@@ -419,7 +447,7 @@ public class CryptoHandler extends Applet implements SharedCryptoInterface {
                                   byte[] outputBuffer, short outputOffset) throws ISOException {
         // Verify authentication hash (status byte is the data being authenticated)
         if (!verifyAuthHashInternal(authHashBuffer, authHashOffset, statusBuffer, statusOffset, SET_STATUS_DATA_LENGTH)) {
-             ISOException.throwIt(ISO7816.SW_WRONG_DATA); // Auth failed
+            ISOException.throwIt(CryptoErrors.ERR_AUTH_FAILED); // Auth failed
         }
         // Authentication successful, set the status
         configStatus = statusBuffer[statusOffset];
@@ -447,36 +475,41 @@ public class CryptoHandler extends Applet implements SharedCryptoInterface {
                                   byte[] outputBuffer, short outputOffset) throws ISOException {
         // Verify authentication hash (using dummy data)
         if (!verifyAuthHashInternal(authHashBuffer, authHashOffset, dummyDataBuffer, dummyDataOffset, dummyDataLength)) {
-            ISOException.throwIt(ISO7816.SW_WRONG_DATA); // Auth failed
+            ISOException.throwIt(CryptoErrors.ERR_AUTH_FAILED);
         }
 
-        // Generate random IV for AES-CBC
-        randomData.nextBytes(iv, (short)0, IV_LENGTH);
+        try {
+            // Generate random IV for AES-CBC
+            randomData.nextBytes(iv, (short)0, IV_LENGTH);
 
-        // Set up AES key and cipher for encryption
-        aesKey.setKey(storedDerivedKey, (short)0);
-        aesCipher.init(aesKey, Cipher.MODE_ENCRYPT, iv, (short)0, IV_LENGTH);
+            // Set up AES key and cipher for encryption
+            aesKey.setKey(storedDerivedKey, (short)0);
+            aesCipher.init(aesKey, Cipher.MODE_ENCRYPT, iv, (short)0, IV_LENGTH);
 
-        // Get private key bytes into a transient buffer
-        byte[] tempBuffer = JCSystem.makeTransientByteArray(PRIVATE_KEY_LENGTH, JCSystem.CLEAR_ON_DESELECT);
-        privKey.getS(tempBuffer, (short)0); // Get private key scalar (S)
+            // Get private key bytes into a transient buffer
+            byte[] tempBuffer = JCSystem.makeTransientByteArray(PRIVATE_KEY_LENGTH, JCSystem.CLEAR_ON_DESELECT);
+            privKey.getS(tempBuffer, (short)0); // Get private key scalar (S)
 
-        // Copy the random IV to the beginning of the output buffer
-        Util.arrayCopyNonAtomic(iv, (short)0, outputBuffer, outputOffset, IV_LENGTH);
+            // Copy the random IV to the beginning of the output buffer
+            Util.arrayCopyNonAtomic(iv, (short)0, outputBuffer, outputOffset, IV_LENGTH);
 
-        // Encrypt the raw private key (tempBuffer) and append it after the IV.
-        // PKCS5 padding is handled automatically by the cipher instance.
-        short encryptedLength = aesCipher.doFinal(tempBuffer, (short)0, PRIVATE_KEY_LENGTH,
-                                                  outputBuffer, (short)(outputOffset + IV_LENGTH));
+            // Encrypt the raw private key (tempBuffer) and append it after the IV.
+            // PKCS5 padding is handled automatically by the cipher instance.
+            short encryptedLength = aesCipher.doFinal(tempBuffer, (short)0, PRIVATE_KEY_LENGTH,
+                                                      outputBuffer, (short)(outputOffset + IV_LENGTH));
 
-        // Clear the temporary buffer holding the private key
-        Util.arrayFillNonAtomic(tempBuffer, (short)0, PRIVATE_KEY_LENGTH, (byte)0);
+            // Clear the temporary buffer holding the private key
+            Util.arrayFillNonAtomic(tempBuffer, (short)0, PRIVATE_KEY_LENGTH, (byte)0);
 
-        // Set the flag indicating the key has been exported
-        configFlags |= FLAG_KEY_EXPORTED;
+            // Set the flag indicating the key has been exported
+            configFlags |= FLAG_KEY_EXPORTED;
 
-        // Return total length: IV + encrypted data
-        return (short)(IV_LENGTH + encryptedLength);
+            // Return total length: IV + encrypted data
+            return (short)(IV_LENGTH + encryptedLength);
+        } catch (Exception e) {
+            ISOException.throwIt(CryptoErrors.ERR_EXPORT_FAILED);
+        }
+        return 0; // Unreachable
     }
 
     /**
@@ -499,14 +532,20 @@ public class CryptoHandler extends Applet implements SharedCryptoInterface {
                                     byte[] outputBuffer, short outputOffset) throws ISOException {
         // Verify authentication hash (using *old* derived key, authenticating the *new* derived key)
         if (!verifyAuthHashInternal(authHashBuffer, authHashOffset, newDerivedKeyBuffer, newDerivedKeyOffset, newDerivedKeyLength)) {
-             ISOException.throwIt(ISO7816.SW_WRONG_DATA); // Auth failed
+            ISOException.throwIt(CryptoErrors.ERR_AUTH_FAILED);
         }
-        // Authentication successful, copy new key and reset lock state
-        Util.arrayCopyNonAtomic(newDerivedKeyBuffer, newDerivedKeyOffset, storedDerivedKey, (short)0, DERIVED_KEY_LENGTH);
-        passwordTries = 0; // Reset password tries
-        isLocked = false;  // Unlock card
-        outputBuffer[outputOffset] = (byte)0x00; // Return success status byte
-        return (short)1; 
+        
+        try {
+            // Authentication successful, copy new key and reset lock state
+            Util.arrayCopyNonAtomic(newDerivedKeyBuffer, newDerivedKeyOffset, storedDerivedKey, (short)0, DERIVED_KEY_LENGTH);
+            passwordTries = 0; // Reset password tries
+            isLocked = false;  // Unlock card
+            outputBuffer[outputOffset] = (byte)0x00; // Return success status byte
+            return 1; 
+        } catch (Exception e) {
+            ISOException.throwIt(CryptoErrors.ERR_CRYPTO_FAILED);
+        }
+        return 0; // Unreachable
     }
 
     /**
@@ -529,18 +568,24 @@ public class CryptoHandler extends Applet implements SharedCryptoInterface {
                                   byte[] outputBuffer, short outputOffset) throws ISOException {
         // Verify authentication hash (dummy data used)
         if (!verifyAuthHashInternal(authHashBuffer, authHashOffset, dummyDataBuffer, dummyDataOffset, dummyDataLength)) {
-             ISOException.throwIt(ISO7816.SW_WRONG_DATA); // Auth failed
+            ISOException.throwIt(CryptoErrors.ERR_AUTH_FAILED);
         }
-        // Reset all state variables
-        counter[0] = 0; counter[1] = 0; counter[2] = 0; counter[3] = 1; 
-        configFlags = 0; // Not initialized, not exported
-        configStatus = 0;
-        Util.arrayFillNonAtomic(storedDerivedKey, (short)0, DERIVED_KEY_LENGTH, (byte)0); // Clear stored key
-        passwordTries = 0;
-        isLocked = false;
-        generateNewKeyPairInternal(); // Generate a fresh key pair
-        outputBuffer[outputOffset] = (byte)0x00; // Return success status byte
-        return (short)1; 
+        
+        try {
+            // Reset all state variables
+            counter[0] = 0; counter[1] = 0; counter[2] = 0; counter[3] = 1; 
+            configFlags = 0; // Not initialized, not exported
+            configStatus = 0;
+            Util.arrayFillNonAtomic(storedDerivedKey, (short)0, DERIVED_KEY_LENGTH, (byte)0); // Clear stored key
+            passwordTries = 0;
+            isLocked = false;
+            generateNewKeyPairInternal(); // Generate a fresh key pair
+            outputBuffer[outputOffset] = (byte)0x00; // Return success status byte
+            return 1;
+        } catch (Exception e) {
+            ISOException.throwIt(CryptoErrors.ERR_CRYPTO_FAILED);
+        }
+        return 0; // Unreachable
     }
 
     // --- Internal Helper Methods ---
@@ -579,10 +624,10 @@ public class CryptoHandler extends Applet implements SharedCryptoInterface {
      * @param dataToAuthOffset Offset of the data.
      * @param dataToAuthLength Length of the data.
      * @return true if the hash matches, false otherwise.
-     * @throws ISOException SW_SECURITY_STATUS_NOT_SATISFIED if locked (and not RESET),
-     *                      SW_CONDITIONS_NOT_SATISFIED if not initialized (and not RESET),
-     *                      SW_WRONG_DATA if hash mismatches (after incrementing tries),
-     *                      SW_UNKNOWN if computed hash length is wrong.
+     * @throws ISOException ERR_CARD_LOCKED if locked,
+     *                      ERR_NOT_INITIALIZED if not initialized,
+     *                      ERR_AUTH_FAILED if hash mismatches (after incrementing tries),
+     *                      ERR_CRYPTO_FAILED if computed hash length is wrong.
      */
     private boolean verifyAuthHashInternal(byte[] authHashBuffer, short authHashOffset,
                                            byte[] dataToAuthBuffer, short dataToAuthOffset, short dataToAuthLength)
@@ -590,28 +635,28 @@ public class CryptoHandler extends Applet implements SharedCryptoInterface {
 
         // Check lock status
         if (isLocked) {
-             ISOException.throwIt(ISO7816.SW_SECURITY_STATUS_NOT_SATISFIED); // Locked
+            ISOException.throwIt(CryptoErrors.ERR_CARD_LOCKED);
         }
 
-        // Check initialization status (allow RESET even if not initialized)
+        // Check initialization status
         if ((configFlags & FLAG_INITIALIZED) == 0) {
-              ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED); // Not initialized
+            ISOException.throwIt(CryptoErrors.ERR_NOT_INITIALIZED);
         }
 
         // Compute expected hash: SHA256(AUTH_PREFIX || AUTH_STRING || storedDerivedKey || dataToAuth)
         sha256.reset();
         sha256.update(AUTH_PREFIX, (short)0, (short)AUTH_PREFIX.length);
         sha256.update(AUTH_STRING, (short)0, (short)AUTH_STRING.length);
+        sha256.update(dataToAuthBuffer, dataToAuthOffset, dataToAuthLength);
         sha256.update(storedDerivedKey, (short)0, DERIVED_KEY_LENGTH);
-        sha256.update(dataToAuthBuffer, dataToAuthOffset, dataToAuthLength); // Hash the actual command data
 
         // Use transient buffer for computed hash
         byte[] computedHash = JCSystem.makeTransientByteArray(AUTH_HASH_LENGTH, JCSystem.CLEAR_ON_DESELECT);
-        short computedHashLen = sha256.doFinal(computedHash, (short)0, (short)0, computedHash, (short)0); // Finalize hash into computedHash buffer
+        short computedHashLen = sha256.doFinal(computedHash, (short)0, (short)0, computedHash, (short)0);
 
         // Check hash length after computation (should always be 32 for SHA-256)
         if (computedHashLen != AUTH_HASH_LENGTH) {
-            ISOException.throwIt(ISO7816.SW_UNKNOWN); // Should not happen
+            ISOException.throwIt(CryptoErrors.ERR_CRYPTO_FAILED);
         }
 
         // Compare provided hash with computed hash
@@ -623,14 +668,13 @@ public class CryptoHandler extends Applet implements SharedCryptoInterface {
             passwordTries++;
             if (passwordTries >= MAX_PASSWORD_TRIES) {
                 isLocked = true;
-                 ISOException.throwIt(ISO7816.SW_SECURITY_STATUS_NOT_SATISFIED); // Locked after too many tries
+                ISOException.throwIt(CryptoErrors.ERR_CARD_LOCKED);
             }
-             ISOException.throwIt(ISO7816.SW_WRONG_DATA); // Indicate bad auth without locking yet
-        } else {
-            // Match successful
-            passwordTries = 0; // Reset counter on success
-            return true;
+            ISOException.throwIt(CryptoErrors.ERR_AUTH_FAILED);
         }
-        return false;
+        
+        // Match successful
+        passwordTries = 0; // Reset counter on success
+        return true;
     }
 }
